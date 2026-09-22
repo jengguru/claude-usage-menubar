@@ -75,7 +75,7 @@ final class CredentialsTests: XCTestCase {
 
     #if os(macOS)
     func testDecodesHexKeychainOutput() {
-        let hex = Data("7b2261223a317d0a".utf8) // {"a":1}
+        let hex = Data("7b2261223a317d".utf8) // {"a":1}
         XCTAssertEqual(String(decoding: KeychainCLICredentialsSource.decodePassword(hex), as: UTF8.self), #"{"a":1}"#)
         XCTAssertEqual(KeychainCLICredentialsSource.decodePassword(Data("{\"a\":1}\n".utf8)), Data(#"{"a":1}"#.utf8))
     }
