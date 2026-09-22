@@ -2,20 +2,28 @@
 
 <img src="Resources/AppIcon.png" width="128" alt="Headroom icon">
 
-**Know how much Claude you have left, before you hit the wall.**
+**Know how much Claude and Codex you have left, before you hit the wall.**
 
-A native macOS menu bar app that shows your Claude subscription usage limits (shared by claude.ai and Claude Code) and notifies you before you hit them.
+A native macOS menu bar app that shows your subscription usage limits for **Claude** (shared by claude.ai and Claude Code) and **Codex** (ChatGPT plan limits for Codex CLI, IDE and cloud), and notifies you before you hit them.
 
-- **Current session** (5-hour window): % used, % left, time until reset
-- **Weekly limit** (7-day window): % used, % left, time until reset
-- Model-specific weekly limits (Opus / Sonnet) when your plan reports them
+- **Current session / 5h limit**: % used, % left, time until reset
+- **Weekly limit**: % used, % left, time until reset
+- Model-specific limits (Claude Opus / Sonnet weekly, extra Codex model limits) when your plan reports them
 - Menu bar ring icon (outer ring = session, inner ring = weekly), with an optional `59%` label
-- macOS notifications at thresholds you set (default 75% and 90%), once per threshold per window
-- Configurable refresh interval, launch at login
+- **Combined** menu bar icon (default): one icon showing whichever service is closest to its limit, with both services in one popover. Or **Separate**: one icon per service (Settings → Menu bar → Icons)
+- macOS notifications at thresholds you set (default 75% and 90%), once per threshold per window, naming the service ("Codex weekly usage at 90%")
+- Turn each service on or off, configurable refresh interval, launch at login
 
-Requires macOS 13+, a Pro or Max plan, and Claude Code signed in (`claude` → `/login`).
+Requires macOS 13+ and at least one of:
+
+- **Claude**: a Pro or Max plan, with Claude Code signed in (`claude` → `/login`)
+- **Codex**: a ChatGPT plan that includes Codex (Plus, Pro, Business, …), with Codex CLI signed in with ChatGPT (`codex login`)
+
+> **ChatGPT chat message limits are not shown.** Codex's usage endpoint doesn't report them and there is no known endpoint that does, so the Codex numbers cover Codex usage only, not messages in the ChatGPT app.
 
 ## Where the data comes from
+
+### Claude
 
 I compared four possible sources before building:
 
@@ -32,38 +40,64 @@ I compared four possible sources before building:
 - **Request:** `Authorization: Bearer <accessToken>` and `anthropic-beta: oauth-2025-04-20`.
 - **Read-only:** the app **never refreshes or writes the token**. Refreshing would rotate Claude Code's refresh token and could sign Claude Code out. When the access token expires, the app shows a message. As soon as you use Claude Code again, it refreshes the token and the app picks it up automatically.
 - **Polling:** every 5 minutes by default (2–30 is configurable). On a 429 the app backs off (it honours `Retry-After`, waits at least 2 minutes and at most 1 hour). The Refresh button respects the backoff.
-- **Privacy:** the only network request goes to `api.anthropic.com`. The token stays in memory for the length of each request.
+- **Privacy:** the only Claude request goes to `api.anthropic.com`. The token stays in memory for the length of each request.
+
+### Codex
+
+**Chosen:** `GET https://chatgpt.com/backend-api/wham/usage`, the endpoint Codex CLI's `/status` command reads (checked against the [openai/codex](https://github.com/openai/codex) source, `codex-rs/backend-client`). It returns:
+
+```json
+{"plan_type": "plus",
+ "rate_limit": {"allowed": true, "limit_reached": false,
+   "primary_window":   {"used_percent": 42, "limit_window_seconds": 18000,  "reset_after_seconds": 3600,   "reset_at": 1790083980},
+   "secondary_window": {"used_percent": 81, "limit_window_seconds": 604800, "reset_after_seconds": 400000, "reset_at": 1790480380}},
+ "additional_rate_limits": [{"limit_name": "…", "metered_feature": "…", "rate_limit": {…}}]}
+```
+
+Windows are labelled the way Codex's `/status` labels them (`5h`, `weekly`, …, from `limit_window_seconds`). Windows up to a day long use your *session* thresholds; longer ones use your *weekly* thresholds.
+
+- **Token:** read from `~/.codex/auth.json` (or `$CODEX_HOME/auth.json`): `tokens.access_token`, plus `tokens.account_id`, which is sent as `ChatGPT-Account-Id` like Codex does. If there's no file and Codex is set to keep credentials in the Keychain (`cli_auth_credentials_store = "keyring"`), the app reads the `Codex Auth` Keychain item via `/usr/bin/security` instead, and macOS asks once.
+- **Request:** `Authorization: Bearer <access_token>`, `ChatGPT-Account-Id: <account_id>`.
+- **Read-only:** like the Claude side, the app **never refreshes or writes** Codex's tokens (a refresh would rotate Codex's refresh token and could sign Codex out). When the token expires, using Codex once refreshes it and the app picks it up.
+- **API-key logins** (`OPENAI_API_KEY` in auth.json) have no plan limits, so the app asks you to sign in with ChatGPT instead.
+- **Polling and privacy:** same schedule and 429 backoff as Claude. The only Codex request goes to `chatgpt.com`, and only when a Codex sign-in exists. Error messages name JSON keys, never token values.
 
 ## Architecture
 
 ```
 Sources/
   HeadroomCore/             Foundation only, unit tested
-    Credentials.swift       Keychain (security CLI) / file token sources
-    UsageAPIClient.swift    /api/oauth/usage request + status → error mapping
-    UsageModels.swift       UsageWindow / UsageSnapshot + lenient JSON decoding
+    UsageModels.swift       UsageProvider, UsageWindow / UsageSnapshot (shared by all providers)
+    UsageFetching.swift     UsageFetcher protocol, shared HTTP status → error mapping
+    Credentials.swift       file / Keychain (security CLI) sources + first-match loader
+    Providers/Claude.swift  Claude Code credentials, /api/oauth/usage client + decoder
+    Providers/Codex.swift   Codex auth.json credentials, /wham/usage client + decoder
     Thresholds.swift        once-per-window threshold alerts (hysteresis + reset detection)
     UsageFormatting.swift   "3h 27m", "Today at 16:00", % and colour levels
   Headroom/                 SwiftUI MenuBarExtra app (LSUIElement, no Dock icon)
-    HeadroomApp.swift       MenuBarExtra(.window) scene
-    UsageStore.swift        @MainActor poll loop, backoff, error states
+    HeadroomApp.swift       MenuBarExtra scenes: one combined, or one per provider
+    UsageStore.swift        per-provider @MainActor poll loop, backoff, error states
     PopoverView.swift       the popover UI
     SettingsPanel.swift     in-popover settings
-    MenuBarIcon.swift       ring icon drawing + label
+    MenuBarIcon.swift       ring icon drawing + labels
     NotificationManager.swift  UNUserNotificationCenter
-Tests/HeadroomCoreTests     decoding, credentials, thresholds, formatting
+Tests/HeadroomCoreTests     decoding, credentials, thresholds, provider selection, formatting
 Resources/AppIcon.svg       icon source (AppIcon.png is its 1024px render)
 ```
 
-How threshold notifications work: each threshold fires once per usage window. It re-arms when the window's `resets_at` moves (a new window starts), or when usage drops more than 5 points below the threshold. If a single poll crosses several thresholds, you get one notification for the highest. Fired state is saved, so relaunching the app doesn't repeat alerts.
+Adding a provider means writing a `UsageFetcher` that returns a `UsageSnapshot`; thresholds, notifications, the menu bar and the popover work from the snapshot.
+
+The combined icon shows the provider whose highest *primary* window (session or weekly) is highest. Model-specific windows don't count, because hitting one still leaves the other models available. On a tie it keeps the first provider (Claude), so the icon doesn't flicker. With more than one service turned on, the label names the service (`Codex 81%`). In separate mode each icon always shows its service's name, because the rings look the same for every service.
+
+How threshold notifications work: each threshold fires once per usage window, tracked separately per service. It re-arms when the window's `resets_at` moves (a new window starts), or when usage drops more than 5 points below the threshold. If a single poll crosses several thresholds, you get one notification for the highest. Fired state is saved, so relaunching the app doesn't repeat alerts.
 
 ## Build & run
 
-Needs Xcode 15+ (or its command line tools):
+Needs Xcode 15+ (or its command line tools). Run the core unit tests, build `build/Headroom.app` (ad-hoc signed, with icon) and open it:
 
 ```sh
-swift test                      # core unit tests
-scripts/build-app.sh            # → build/Headroom.app (ad-hoc signed, with icon)
+swift test
+scripts/build-app.sh
 open "build/Headroom.app"
 ```
 
@@ -74,14 +108,18 @@ Because the app is ad-hoc signed, the first time you open a downloaded build: ri
 ## Troubleshooting
 
 - **"No Claude Code sign-in found"**: install Claude Code, run `claude`, then `/login` with your Pro/Max account.
+- **"No Codex sign-in found"**: install Codex CLI and run `codex login` with your ChatGPT account. If you don't use one of the services, turn it off in Settings → Services.
+- **"Codex is signed in with an API key"**: API-key usage has no plan limits. Run `codex login` and choose **Sign in with ChatGPT**.
+- **`CODEX_HOME` / `CLAUDE_CONFIG_DIR` ignored**: apps opened from Finder don't see variables set in your shell profile. Use the default `~/.codex` / `~/.claude`, or start the app's binary from a Terminal that has them set: `build/Headroom.app/Contents/MacOS/Headroom`.
 - **"Keychain access was denied"**: press Refresh and choose **Always Allow** in the prompt.
-- **"sign-in token expired"**: use Claude Code once (any prompt) and it refreshes the token.
+- **"sign-in token expired"**: use Claude Code or Codex once (any prompt) and it refreshes its token.
 - **"Rate limited"**: the endpoint throttles frequent callers. The app retries automatically. Consider a longer refresh interval.
 
 ## Limitations / next steps
 
-- The endpoint is unofficial. If Anthropic changes it, parsing fails with a visible error instead of showing wrong numbers.
-- API-key (Console) usage is not covered: those accounts have no subscription windows.
+- Both endpoints are unofficial. If Anthropic or OpenAI changes one, parsing fails with a visible error instead of showing wrong numbers.
+- **ChatGPT chat/message limits are not available**, only Codex limits.
+- API-key usage (Anthropic Console, OpenAI API keys) is not covered: those accounts have no subscription windows.
 - Ideas: a "limit reset" notification, a usage history sparkline, a status line bridge as a second data source.
 
-Not affiliated with or endorsed by Anthropic.
+Not affiliated with or endorsed by Anthropic or OpenAI.

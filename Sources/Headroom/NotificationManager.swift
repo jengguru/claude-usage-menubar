@@ -21,14 +21,14 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     func post(_ alert: ThresholdAlert) {
         let content = UNMutableNotificationContent()
-        content.title = "Claude \(alert.kind.shortName) usage at \(UsageFormatting.percent(alert.utilization))%"
+        content.title = "\(alert.provider.displayName) \(alert.windowName) usage at \(UsageFormatting.percent(alert.utilization))%"
         var body = "\(UsageFormatting.percent(max(100 - alert.utilization, 0)))% left"
         if let resetsAt = alert.resetsAt {
             body += " · resets in \(UsageFormatting.countdown(to: resetsAt)) (\(UsageFormatting.resetDescription(resetsAt)))"
         }
         content.body = body
         content.sound = alert.threshold >= 90 ? .defaultCritical : .default
-        deliver(content, id: "threshold-\(alert.kind.rawValue)")
+        deliver(content, id: "threshold-\(alert.provider.rawValue)-\(alert.windowID)")
     }
 
     func postTest() {

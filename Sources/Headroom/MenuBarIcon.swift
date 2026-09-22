@@ -47,21 +47,53 @@ enum MenuBarIcon {
     }
 }
 
-struct MenuBarLabel: View {
+/// The combined icon: rings for whichever enabled provider is closest to a limit.
+struct CombinedMenuBarLabel: View {
     @ObservedObject var store: UsageStore
+
+    var body: some View {
+        let shown = store.mostConstrained
+        // Name the provider only when there is more than one it could be.
+        MenuBarLabelContent(snapshot: shown?.snapshot, name: store.enabledStores.count > 1 ? shown?.provider.displayName : nil,
+                            alwaysShowName: false)
+    }
+}
+
+/// One provider's own icon ("One icon per service"). Always named, since the
+/// rings alone look the same for every provider.
+struct ProviderMenuBarLabel: View {
+    @ObservedObject var store: ProviderStore
+
+    var body: some View {
+        MenuBarLabelContent(snapshot: store.snapshot, name: store.provider.displayName, alwaysShowName: true)
+    }
+}
+
+private struct MenuBarLabelContent: View {
+    let snapshot: UsageSnapshot?
+    let name: String?
+    let alwaysShowName: Bool
     @AppStorage(SettingsKey.menuBarText) private var textMode = MenuBarTextMode.sessionUsed.rawValue
 
     var body: some View {
-        let session = store.snapshot?.session
         HStack(spacing: 3) {
-            Image(nsImage: MenuBarIcon.image(session: session?.utilization, weekly: store.snapshot?.weekly?.utilization))
-            if let session, let text = text(for: session) {
+            Image(nsImage: MenuBarIcon.image(session: snapshot?.session?.utilization, weekly: snapshot?.weekly?.utilization))
+            if let text {
                 Text(text).monospacedDigit()
             }
         }
     }
 
-    private func text(for session: UsageWindow) -> String? {
+    private var text: String? {
+        let percent = snapshot?.session.flatMap { percentText(for: $0) }
+        switch (name, percent) {
+        case let (name?, percent?): return "\(name) \(percent)"
+        case let (name?, nil): return alwaysShowName ? name : nil
+        case let (nil, percent): return percent
+        }
+    }
+
+    private func percentText(for session: UsageWindow) -> String? {
         switch MenuBarTextMode(rawValue: textMode) ?? .none {
         case .none: return nil
         case .sessionUsed: return "\(UsageFormatting.percent(session.usedPercent))%"

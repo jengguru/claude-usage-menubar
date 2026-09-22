@@ -1,34 +1,42 @@
+import Combine
 import Foundation
 import HeadroomCore
 
+/// Polls one provider: its own loop, backoff and error state.
 @MainActor
-final class UsageStore: ObservableObject {
+final class ProviderStore: ObservableObject, Identifiable {
     enum Status: Equatable {
         case idle
         case loading
         case ok
+        /// The provider's CLI isn't signed in on this Mac.
+        case signedOut(String)
         case error(String)
     }
 
+    let provider: UsageProvider
+    nonisolated var id: UsageProvider { provider }
+
     @Published private(set) var snapshot: UsageSnapshot?
     @Published private(set) var status: Status = .idle
-    @Published private(set) var subscriptionType: String?
 
-    let notifier = NotificationManager()
-    private let client = UsageAPIClient()
-    private let credentials = CompositeCredentialsSource.standard
-    private let evaluator = ThresholdEvaluator()
+    /// Called with every successful snapshot (threshold checks).
+    var onSnapshot: ((UsageSnapshot) -> Void)?
+
+    private let fetcher: UsageFetcher
     private var pollTask: Task<Void, Never>?
     /// Set after a 429 so neither the poll loop nor the Refresh button hammers the endpoint.
     private var rateLimitedUntil: Date?
 
-    init() {
-        notifier.requestAuthorization()
-        startPolling()
+    init(fetcher: UsageFetcher) {
+        self.provider = fetcher.provider
+        self.fetcher = fetcher
     }
 
+    var isRunning: Bool { pollTask != nil }
+
     /// (Re)starts the poll loop, fetching immediately.
-    func startPolling() {
+    func start() {
         pollTask?.cancel()
         pollTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -38,61 +46,113 @@ final class UsageStore: ObservableObject {
         }
     }
 
-    func refreshNow() {
-        startPolling()
+    func stop() {
+        pollTask?.cancel()
+        pollTask = nil
+        status = .idle
     }
 
-    /// Refreshes when the popover opens, unless data is fresh.
+    /// Refreshes when a popover opens, unless data is fresh.
     func refreshIfStale() {
-        guard status != .loading else { return }
+        guard isRunning, status != .loading else { return }
         if let snapshot, Date().timeIntervalSince(snapshot.fetchedAt) < 120 { return }
-        startPolling()
+        start()
     }
 
     /// Fetches once and returns the delay before the next fetch.
     private func refresh() async -> TimeInterval {
         let interval = AppSettings.refreshInterval
         if let until = rateLimitedUntil, until > Date() {
-            status = .error("Rate limited by Anthropic — retrying in \(UsageFormatting.countdown(to: until)).")
+            status = .error(rateLimitMessage(until: until))
             return until.timeIntervalSinceNow
         }
 
         status = .loading
-        var loaded: OAuthCredentials?
         do {
-            let source = credentials
-            // `security` can block on a Keychain prompt, so keep it off the main thread.
-            let creds = try await Task.detached(priority: .utility) { try source.loadRequired() }.value
-            loaded = creds
-            subscriptionType = creds.subscriptionType
-            let snapshot = try await client.fetch(accessToken: creds.accessToken)
+            let snapshot = try await fetcher.fetch()
+            // Stopped or restarted mid-request: the newer loop owns the state.
+            if Task.isCancelled { return interval }
             self.snapshot = snapshot
             status = .ok
-            checkThresholds(snapshot)
+            onSnapshot?(snapshot)
             return interval
-        } catch UsageAPIError.rateLimited(let retryAfter) {
+        } catch UsageAPIError.rateLimited(_, let retryAfter) {
             let wait = min(max(retryAfter ?? 0, interval * 2, 120), 3600)
-            rateLimitedUntil = Date().addingTimeInterval(wait)
-            status = .error("Rate limited by Anthropic — retrying in \(UsageFormatting.countdown(to: rateLimitedUntil!)).")
+            let until = Date().addingTimeInterval(wait)
+            rateLimitedUntil = until
+            status = .error(rateLimitMessage(until: until))
             return wait
-        } catch UsageAPIError.unauthorized {
-            let expired = loaded?.isExpired() ?? false
-            status = .error(expired
-                ? "Claude Code's sign-in token expired. Use Claude Code (or run `claude`) once to refresh it — this app picks it up automatically."
-                : UsageAPIError.unauthorized.errorDescription ?? "Unauthorized.")
-            return interval
         } catch {
-            // A superseded fetch (Refresh pressed mid-request) must not clobber the new one's status.
             if Task.isCancelled { return interval }
-            status = .error(error.localizedDescription)
+            status = Self.isSignedOut(error) ? .signedOut(error.localizedDescription) : .error(error.localizedDescription)
             return interval
         }
     }
 
+    private static func isSignedOut(_ error: Error) -> Bool {
+        (error as? ClaudeCredentialsError) == .notFound || (error as? CodexCredentialsError) == .notFound
+    }
+
+    private func rateLimitMessage(until: Date) -> String {
+        "Rate limited by \(provider.vendor) — retrying in \(UsageFormatting.countdown(to: until))."
+    }
+}
+
+@MainActor
+final class UsageStore: ObservableObject {
+    let providers: [ProviderStore]
+    let notifier = NotificationManager()
+    private let evaluator = ThresholdEvaluator()
+    private var forwarding: [AnyCancellable] = []
+
+    init() {
+        providers = [ProviderStore(fetcher: ClaudeUsageClient()), ProviderStore(fetcher: CodexUsageClient())]
+        notifier.requestAuthorization()
+        for store in providers {
+            store.onSnapshot = { [weak self] in self?.checkThresholds($0) }
+            // The combined menu bar icon depends on every provider.
+            forwarding.append(store.objectWillChange.sink { [weak self] _ in self?.objectWillChange.send() })
+        }
+        applyEnabledProviders()
+    }
+
+    func store(for provider: UsageProvider) -> ProviderStore {
+        providers.first { $0.provider == provider }!
+    }
+
+    var enabledStores: [ProviderStore] {
+        providers.filter { AppSettings.isEnabled($0.provider) }
+    }
+
+    /// Starts newly enabled providers and stops disabled ones.
+    func applyEnabledProviders() {
+        objectWillChange.send()
+        for store in providers {
+            let enabled = AppSettings.isEnabled(store.provider)
+            if enabled, !store.isRunning {
+                store.start()
+            } else if !enabled, store.isRunning {
+                store.stop()
+            }
+        }
+    }
+
+    /// Restarts every enabled provider's loop (Refresh button, interval change).
+    func refreshAll() {
+        enabledStores.forEach { $0.start() }
+    }
+
+    /// The enabled provider closest to one of its limits, for the combined icon.
+    var mostConstrained: ProviderStore? {
+        let enabled = enabledStores
+        guard let snapshot = enabled.compactMap(\.snapshot).mostConstrained() else { return enabled.first }
+        return store(for: snapshot.provider)
+    }
+
     private func checkThresholds(_ snapshot: UsageSnapshot) {
-        var state = AppSettings.thresholdState
+        var state = AppSettings.thresholdState(for: snapshot.provider)
         let alerts = evaluator.evaluate(snapshot: snapshot, thresholds: AppSettings.thresholds, state: &state)
-        AppSettings.thresholdState = state
+        AppSettings.setThresholdState(state, for: snapshot.provider)
         guard AppSettings.notificationsEnabled else { return }
         alerts.forEach(notifier.post)
     }

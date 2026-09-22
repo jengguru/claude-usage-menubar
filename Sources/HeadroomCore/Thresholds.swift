@@ -1,14 +1,17 @@
 import Foundation
 
 public struct ThresholdAlert: Equatable, Sendable {
-    public let kind: UsageWindowKind
+    public let provider: UsageProvider
+    public let windowID: String
+    /// "session", "weekly Opus": completes "<Provider> <name> usage at 90%".
+    public let windowName: String
     public let threshold: Int
     public let utilization: Double
     public let resetsAt: Date?
 }
 
-/// Which thresholds have already fired, per window. Persisted so relaunching
-/// the app doesn't repeat notifications.
+/// Which thresholds have already fired, per window of one provider. Persisted
+/// so relaunching the app doesn't repeat notifications.
 public struct ThresholdState: Codable, Equatable, Sendable {
     public var fired: [String: [Int]] = [:]
     public var anchors: [String: Date] = [:]
@@ -28,13 +31,13 @@ public struct ThresholdEvaluator: Sendable {
     /// crossed since the last evaluation.
     public func evaluate(
         snapshot: UsageSnapshot,
-        thresholds: [UsageWindowKind: [Int]],
+        thresholds: [UsageWindowCategory: [Int]],
         state: inout ThresholdState
     ) -> [ThresholdAlert] {
         var alerts: [ThresholdAlert] = []
         for window in snapshot.windows {
-            guard let levels = thresholds[window.kind], !levels.isEmpty else { continue }
-            let key = window.kind.rawValue
+            guard let levels = thresholds[window.category], !levels.isEmpty else { continue }
+            let key = window.id
             var fired = Set(state.fired[key] ?? [])
 
             if let resetsAt = window.resetsAt {
@@ -47,8 +50,8 @@ public struct ThresholdEvaluator: Sendable {
 
             let crossed = Set(levels.filter { Double($0) <= window.utilization })
             if let highest = crossed.subtracting(fired).max() {
-                alerts.append(ThresholdAlert(kind: window.kind, threshold: highest,
-                                             utilization: window.utilization, resetsAt: window.resetsAt))
+                alerts.append(ThresholdAlert(provider: snapshot.provider, windowID: window.id, windowName: window.shortName,
+                                             threshold: highest, utilization: window.utilization, resetsAt: window.resetsAt))
             }
             state.fired[key] = fired.union(crossed).sorted()
         }
