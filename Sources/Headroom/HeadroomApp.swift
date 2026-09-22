@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct ClaudeMeterApp: App {
+struct HeadroomApp: App {
     @StateObject private var store: UsageStore
 
     init() {

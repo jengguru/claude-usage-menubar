@@ -1,5 +1,5 @@
 import Foundation
-import ClaudeMeterCore
+import HeadroomCore
 
 enum SettingsKey {
     static let refreshMinutes = "refreshMinutes"

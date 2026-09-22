@@ -1,6 +1,6 @@
 import Foundation
 import UserNotifications
-import ClaudeMeterCore
+import HeadroomCore
 
 final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     /// `UNUserNotificationCenter` crashes outside an app bundle (e.g. `swift run`),
@@ -33,7 +33,7 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
 
     func postTest() {
         let content = UNMutableNotificationContent()
-        content.title = "Claude Meter notifications are on"
+        content.title = "Headroom notifications are on"
         content.body = "You'll be alerted when usage crosses your thresholds."
         content.sound = .default
         deliver(content, id: "test")

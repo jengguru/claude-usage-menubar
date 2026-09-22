@@ -2,16 +2,16 @@
 import PackageDescription
 
 let package = Package(
-    name: "ClaudeMeter",
+    name: "Headroom",
     platforms: [.macOS(.v13)],
     products: [
-        .executable(name: "ClaudeMeter", targets: ["ClaudeMeter"]),
+        .executable(name: "Headroom", targets: ["Headroom"]),
     ],
     targets: [
         // Foundation-only logic: credentials, API client, parsing, thresholds, formatting.
-        .target(name: "ClaudeMeterCore"),
+        .target(name: "HeadroomCore"),
         // SwiftUI/AppKit menu bar app.
-        .executableTarget(name: "ClaudeMeter", dependencies: ["ClaudeMeterCore"]),
-        .testTarget(name: "ClaudeMeterCoreTests", dependencies: ["ClaudeMeterCore"]),
+        .executableTarget(name: "Headroom", dependencies: ["HeadroomCore"]),
+        .testTarget(name: "HeadroomCoreTests", dependencies: ["HeadroomCore"]),
     ]
 )

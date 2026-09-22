@@ -45,7 +45,7 @@ public final class UsageAPIClient: @unchecked Sendable {
         request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         request.setValue(Self.betaHeader, forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.setValue("ClaudeMeter/0.1", forHTTPHeaderField: "User-Agent")
+        request.setValue("Headroom/0.2", forHTTPHeaderField: "User-Agent")
         return request
     }
 

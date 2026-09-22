@@ -1,5 +1,5 @@
 import XCTest
-@testable import ClaudeMeterCore
+@testable import HeadroomCore
 
 final class UsageDecoderTests: XCTestCase {
     func testDecodesTypicalResponse() throws {

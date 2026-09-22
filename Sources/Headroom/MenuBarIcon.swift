@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import ClaudeMeterCore
+import HeadroomCore
 
 extension UsageLevel {
     var color: Color { Color(nsColor: nsColor) }

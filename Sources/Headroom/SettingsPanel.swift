@@ -1,6 +1,6 @@
 import ServiceManagement
 import SwiftUI
-import ClaudeMeterCore
+import HeadroomCore
 
 struct SettingsPanel: View {
     let done: () -> Void

@@ -1,6 +1,6 @@
 import AppKit
 import SwiftUI
-import ClaudeMeterCore
+import HeadroomCore
 
 struct PopoverView: View {
     @EnvironmentObject private var store: UsageStore
@@ -28,17 +28,13 @@ struct PopoverView: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .fill(LinearGradient(colors: [Color(white: 0.28), Color(white: 0.12)], startPoint: .top, endPoint: .bottom))
-                Image(systemName: "gauge.with.dots.needle.67percent")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.orange)
-            }
-            .frame(width: 40, height: 40)
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 44, height: 44)
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("Claude Meter").font(.headline)
+                Text("Headroom").font(.headline.weight(.bold))
                 Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
@@ -55,8 +51,8 @@ struct PopoverView: View {
     }
 
     private var subtitle: String {
-        guard let plan = store.subscriptionType, !plan.isEmpty else { return "Usage Overview" }
-        return "\(plan.capitalized) plan"
+        guard let plan = store.subscriptionType, !plan.isEmpty else { return "Claude usage" }
+        return "Claude \(plan.capitalized) plan"
     }
 
     @ViewBuilder

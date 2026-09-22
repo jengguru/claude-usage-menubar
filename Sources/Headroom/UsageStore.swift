@@ -1,5 +1,5 @@
 import Foundation
-import ClaudeMeterCore
+import HeadroomCore
 
 @MainActor
 final class UsageStore: ObservableObject {

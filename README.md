@@ -1,4 +1,8 @@
-# Claude Meter
+# Headroom
+
+<img src="Resources/AppIcon.png" width="128" alt="Headroom icon">
+
+**Know how much Claude you have left, before you hit the wall.**
 
 A native macOS menu bar app that shows your Claude subscription usage limits (shared by claude.ai and Claude Code) and notifies you before you hit them.
 
@@ -34,20 +38,21 @@ I compared four possible sources before building:
 
 ```
 Sources/
-  ClaudeMeterCore/          Foundation only, unit tested
+  HeadroomCore/             Foundation only, unit tested
     Credentials.swift       Keychain (security CLI) / file token sources
     UsageAPIClient.swift    /api/oauth/usage request + status → error mapping
     UsageModels.swift       UsageWindow / UsageSnapshot + lenient JSON decoding
     Thresholds.swift        once-per-window threshold alerts (hysteresis + reset detection)
     UsageFormatting.swift   "3h 27m", "Today at 16:00", % and colour levels
-  ClaudeMeter/              SwiftUI MenuBarExtra app (LSUIElement, no Dock icon)
-    ClaudeMeterApp.swift    MenuBarExtra(.window) scene
+  Headroom/                 SwiftUI MenuBarExtra app (LSUIElement, no Dock icon)
+    HeadroomApp.swift       MenuBarExtra(.window) scene
     UsageStore.swift        @MainActor poll loop, backoff, error states
     PopoverView.swift       the popover UI
     SettingsPanel.swift     in-popover settings
     MenuBarIcon.swift       ring icon drawing + label
     NotificationManager.swift  UNUserNotificationCenter
-Tests/ClaudeMeterCoreTests  decoding, credentials, thresholds, formatting
+Tests/HeadroomCoreTests     decoding, credentials, thresholds, formatting
+Resources/AppIcon.svg       icon source (AppIcon.png is its 1024px render)
 ```
 
 How threshold notifications work: each threshold fires once per usage window. It re-arms when the window's `resets_at` moves (a new window starts), or when usage drops more than 5 points below the threshold. If a single poll crosses several thresholds, you get one notification for the highest. Fired state is saved, so relaunching the app doesn't repeat alerts.
@@ -58,13 +63,13 @@ Needs Xcode 15+ (or its command line tools):
 
 ```sh
 swift test                      # core unit tests
-scripts/build-app.sh            # → build/Claude Meter.app (ad-hoc signed)
-open "build/Claude Meter.app"
+scripts/build-app.sh            # → build/Headroom.app (ad-hoc signed, with icon)
+open "build/Headroom.app"
 ```
 
-Move the app to `/Applications` if you want **Launch at login**. CI (GitHub Actions, `macos-14`) runs the tests and uploads a universal `ClaudeMeter.zip` artifact on every push.
+Move the app to `/Applications` if you want **Launch at login**. CI (GitHub Actions, `macos-14`) runs the tests and uploads a universal `Headroom.zip` artifact on every push.
 
-Because the app is ad-hoc signed, the first time you open a downloaded build: right-click → **Open**, or run `xattr -dr com.apple.quarantine "Claude Meter.app"`.
+Because the app is ad-hoc signed, the first time you open a downloaded build: right-click → **Open**, or run `xattr -dr com.apple.quarantine "Headroom.app"`.
 
 ## Troubleshooting
 
