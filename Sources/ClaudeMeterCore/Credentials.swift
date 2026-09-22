@@ -22,13 +22,25 @@ public struct OAuthCredentials: Equatable, Sendable {
     ///
     ///     {"claudeAiOauth": {"accessToken": "...", "refreshToken": "...",
     ///                        "expiresAt": 1758553200000, "scopes": [...], "subscriptionType": "max"}}
+    ///
+    /// Error details name JSON keys only, never values, so they are safe to show.
     public static func parse(_ data: Data) throws -> OAuthCredentials {
         guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
-            throw CredentialsError.malformed
+            let start = data.first.map { $0 == UInt8(ascii: "{") ? "starts with '{'" : "does not start with '{'" } ?? "empty"
+            throw CredentialsError.malformed("not valid JSON (\(data.count) bytes, \(start))")
         }
-        let oauth = root["claudeAiOauth"] as? [String: Any] ?? root
+        // The same item also holds MCP server tokens ("mcpOAuth"); without
+        // "claudeAiOauth" Claude Code isn't signed in with a Claude account.
+        let oauth: [String: Any]
+        if let nested = root["claudeAiOauth"] as? [String: Any] {
+            oauth = nested
+        } else if root["accessToken"] != nil {
+            oauth = root
+        } else {
+            throw CredentialsError.noClaudeAccount(foundKeys: root.keys.sorted())
+        }
         guard let token = oauth["accessToken"] as? String, !token.isEmpty else {
-            throw CredentialsError.malformed
+            throw CredentialsError.malformed("claudeAiOauth has no accessToken (keys: \(oauth.keys.sorted().joined(separator: ", ")))")
         }
         let expiresAt = UsageDecoder.number(oauth["expiresAt"]).map { value in
             // Claude Code stores milliseconds since the epoch.
@@ -44,15 +56,19 @@ public struct OAuthCredentials: Equatable, Sendable {
 
 public enum CredentialsError: Error, LocalizedError, Equatable {
     case notFound
-    case malformed
+    case noClaudeAccount(foundKeys: [String])
+    case malformed(String)
     case accessDenied(String)
 
     public var errorDescription: String? {
         switch self {
         case .notFound:
             return "No Claude Code sign-in found. Install Claude Code and run `claude` → /login, then press Refresh."
-        case .malformed:
-            return "Claude Code's stored credentials couldn't be read. Try signing in again with `claude` → /login."
+        case .noClaudeAccount(let keys):
+            let found = keys.isEmpty ? "nothing" : keys.joined(separator: ", ")
+            return "Claude Code isn't signed in with a Claude.ai account (its credentials contain only: \(found)). In Terminal run `claude`, then /login and choose your Claude Pro/Max account."
+        case .malformed(let detail):
+            return "Claude Code's stored credentials couldn't be read: \(detail). Try `claude` → /login again."
         case .accessDenied(let detail):
             return "Keychain access was denied (\(detail)). Press Refresh and choose “Always Allow”."
         }

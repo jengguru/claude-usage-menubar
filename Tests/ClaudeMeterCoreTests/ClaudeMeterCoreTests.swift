@@ -52,7 +52,19 @@ final class CredentialsTests: XCTestCase {
     }
 
     func testRejectsMissingToken() {
-        XCTAssertThrowsError(try OAuthCredentials.parse(Data(#"{"claudeAiOauth":{}}"#.utf8)))
+        XCTAssertThrowsError(try OAuthCredentials.parse(Data(#"{"claudeAiOauth":{"refreshToken":"secret"}}"#.utf8))) {
+            XCTAssertEqual($0 as? CredentialsError, .malformed("claudeAiOauth has no accessToken (keys: refreshToken)"))
+        }
+        XCTAssertThrowsError(try OAuthCredentials.parse(Data("oops".utf8))) {
+            XCTAssertEqual($0 as? CredentialsError, .malformed("not valid JSON (4 bytes, does not start with '{')"))
+        }
+    }
+
+    func testMcpOnlyItemIsNotAClaudeLogin() {
+        XCTAssertThrowsError(try OAuthCredentials.parse(Data(#"{"mcpOAuth":{"server|abc":{"accessToken":"x"}}}"#.utf8))) {
+            XCTAssertEqual($0 as? CredentialsError, .noClaudeAccount(foundKeys: ["mcpOAuth"]))
+            XCTAssertFalse($0.localizedDescription.contains("server|abc"))
+        }
     }
 
     func testCompositeFallsThroughToFile() throws {
