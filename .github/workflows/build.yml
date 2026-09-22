@@ -1,0 +1,21 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: swift --version
+      - name: Test
+        run: swift test
+      - name: Build app bundle
+        run: UNIVERSAL=1 scripts/build-app.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeMeter
+          path: build/ClaudeMeter.zip
