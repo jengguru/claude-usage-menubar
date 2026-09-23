@@ -2,13 +2,38 @@ import AppKit
 import SwiftUI
 import HeadroomCore
 
+extension UsageProvider {
+    var websiteTitle: String {
+        switch self {
+        case .claude: return "Open Claude.ai"
+        case .codex: return "Open Codex usage"
+        }
+    }
+
+    var websiteURL: URL {
+        switch self {
+        case .claude: return URL(string: "https://claude.ai")!
+        case .codex: return URL(string: "https://chatgpt.com/codex/settings/usage")!
+        }
+    }
+}
+
 struct PopoverView: View {
+    /// `nil`: every enabled provider (the combined icon). Otherwise that provider's own icon.
+    let scope: UsageProvider?
+
     @EnvironmentObject private var store: UsageStore
     @State private var showingSettings = false
 
+    private var shownStores: [ProviderStore] {
+        if let scope { return [store.store(for: scope)] }
+        return store.enabledStores
+    }
+
     var body: some View {
+        let shown = shownStores
         VStack(spacing: 0) {
-            header
+            header(shown)
                 .padding(.horizontal, 16)
                 .padding(.top, 16)
                 .padding(.bottom, 12)
@@ -17,16 +42,16 @@ struct PopoverView: View {
                 SettingsPanel(done: { showingSettings = false })
                     .environmentObject(store)
             } else {
-                content
+                content(shown)
                 Divider()
-                actions.padding(16)
+                actions(shown).padding(16)
             }
         }
         .frame(width: 320)
-        .onAppear { store.refreshIfStale() }
+        .onAppear { shown.forEach { $0.refreshIfStale() } }
     }
 
-    private var header: some View {
+    private func header(_ shown: [ProviderStore]) -> some View {
         HStack(spacing: 12) {
             Image(nsImage: NSApp.applicationIconImage)
                 .resizable()
@@ -35,7 +60,7 @@ struct PopoverView: View {
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Headroom").font(.headline.weight(.bold))
-                Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                Text(subtitle(shown)).font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer()
             Button {
@@ -50,59 +75,127 @@ struct PopoverView: View {
         }
     }
 
-    private var subtitle: String {
-        guard let plan = store.subscriptionType, !plan.isEmpty else { return "Claude usage" }
-        return "Claude \(plan.capitalized) plan"
+    private func subtitle(_ shown: [ProviderStore]) -> String {
+        guard shown.count == 1, let only = shown.first else {
+            return shown.isEmpty ? "No services turned on" : shown.map(\.provider.displayName).joined(separator: " & ") + " usage"
+        }
+        return only.planDescription ?? "\(only.provider.displayName) usage"
     }
 
     @ViewBuilder
-    private var content: some View {
-        VStack(spacing: 12) {
-            if let snapshot = store.snapshot {
-                if let session = snapshot.session {
-                    UsageCard(window: session, icon: "clock.badge.checkmark")
-                }
-                if let weekly = snapshot.weekly {
-                    UsageCard(window: weekly, icon: "calendar.badge.clock")
-                }
-                ForEach(snapshot.extraWindows, id: \.kind) { window in
-                    CompactUsageRow(window: window)
-                }
-            } else if case .error(let message) = store.status {
-                MessageCard(icon: "exclamationmark.triangle", text: message)
-            } else {
-                ProgressView().padding(32)
+    private func content(_ shown: [ProviderStore]) -> some View {
+        VStack(spacing: shown.count > 1 ? 16 : 12) {
+            if shown.isEmpty {
+                MessageCard(icon: "switch.2", text: "Turn on Claude or Codex in Settings.")
             }
-            StatusLine()
+            ForEach(shown) { provider in
+                ProviderSection(provider: provider, isOnlyProvider: shown.count == 1)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.bottom, 12)
     }
 
-    private var actions: some View {
+    private func actions(_ shown: [ProviderStore]) -> some View {
         VStack(spacing: 8) {
-            Button {
-                NSWorkspace.shared.open(URL(string: "https://claude.ai")!)
-            } label: {
-                Label("Open Claude.ai", systemImage: "arrow.up.right")
-                    .labelStyle(TrailingIconLabelStyle())
-                    .frame(maxWidth: .infinity)
+            if shown.count == 1, let only = shown.first?.provider {
+                Button {
+                    NSWorkspace.shared.open(only.websiteURL)
+                } label: {
+                    Label(only.websiteTitle, systemImage: "arrow.up.right")
+                        .labelStyle(TrailingIconLabelStyle())
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
 
             HStack(spacing: 8) {
-                Button { store.refreshNow() } label: {
+                Button { shown.forEach { $0.start() } } label: {
                     Label("Refresh", systemImage: "arrow.clockwise").frame(maxWidth: .infinity)
                 }
                 .keyboardShortcut("r")
-                .disabled(store.status == .loading)
+                .disabled(shown.isEmpty || shown.allSatisfy { $0.status == .loading })
                 Button { NSApp.terminate(nil) } label: {
                     Label("Quit", systemImage: "power").frame(maxWidth: .infinity)
                 }
                 .keyboardShortcut("q")
             }
             .controlSize(.large)
+        }
+    }
+}
+
+extension ProviderStore {
+    /// "Claude Max plan", "Codex Plus plan".
+    var planDescription: String? {
+        guard let plan = snapshot?.plan, !plan.isEmpty else { return nil }
+        return "\(provider.displayName) \(plan.capitalized) plan"
+    }
+}
+
+/// One provider's cards. With several providers each gets a heading and
+/// smaller cards so the popover stays a reasonable height.
+private struct ProviderSection: View {
+    @ObservedObject var provider: ProviderStore
+    let isOnlyProvider: Bool
+
+    var body: some View {
+        VStack(spacing: isOnlyProvider ? 12 : 8) {
+            if !isOnlyProvider { heading }
+            cards
+            if provider.provider == .codex {
+                Text("Shows Codex limits only. ChatGPT chat message limits aren't available.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            StatusLine(provider: provider)
+        }
+    }
+
+    private var heading: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(provider.provider.displayName).font(.subheadline.weight(.bold))
+            if let plan = provider.snapshot?.plan, !plan.isEmpty {
+                Text("\(plan.capitalized) plan").font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                NSWorkspace.shared.open(provider.provider.websiteURL)
+            } label: {
+                Image(systemName: "arrow.up.right.square").foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(provider.provider.websiteTitle)
+        }
+    }
+
+    @ViewBuilder
+    private var cards: some View {
+        if let snapshot = provider.snapshot {
+            let primary = snapshot.windows.filter(\.isPrimary)
+            if snapshot.windows.isEmpty {
+                MessageCard(icon: "info.circle", text: "Your plan reports no \(provider.provider.displayName) usage limits.")
+            }
+            ForEach(primary, id: \.id) { window in
+                UsageCard(window: window, icon: window.category == .session ? "clock.badge.checkmark" : "calendar.badge.clock",
+                          compact: !isOnlyProvider)
+            }
+            ForEach(snapshot.extraWindows, id: \.id) { window in
+                CompactUsageRow(window: window)
+            }
+        } else {
+            switch provider.status {
+            case .signedOut(let message):
+                MessageCard(icon: "person.crop.circle.badge.questionmark",
+                            text: message + "\n\nNot using \(provider.provider.displayName)? Turn it off in Settings.")
+            case .error(let message):
+                MessageCard(icon: "exclamationmark.triangle", text: message)
+            case .idle, .loading, .ok:
+                ProgressView().padding(isOnlyProvider ? 32 : 12)
+            }
         }
     }
 }
@@ -147,12 +240,42 @@ private struct UsageBar: View {
 private struct UsageCard: View {
     let window: UsageWindow
     let icon: String
+    var compact = false
 
     var body: some View {
+        if compact {
+            compactBody
+        } else {
+            fullBody
+        }
+    }
+
+    /// Title, percentage and reset countdown on two lines, for the multi-provider popover.
+    private var compactBody: some View {
         let level = UsageLevel(utilization: window.utilization)
-        Card {
+        return Card {
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(alignment: .firstTextBaseline) {
+                    Label(window.title, systemImage: icon)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(UsageFormatting.percent(window.utilization))%")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(level == .normal ? Color.primary : level.color)
+                        .monospacedDigit()
+                }
+                UsageBar(fraction: window.fraction, color: level.color)
+                ResetText(resetsAt: window.resetsAt, compact: true)
+            }
+        }
+    }
+
+    private var fullBody: some View {
+        let level = UsageLevel(utilization: window.utilization)
+        return Card {
             VStack(alignment: .leading, spacing: 10) {
-                Label(window.kind.title, systemImage: icon)
+                Label(window.title, systemImage: icon)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
 
@@ -184,7 +307,7 @@ private struct CompactUsageRow: View {
         Card {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text(window.kind.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    Text(window.title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     Spacer()
                     Text("\(UsageFormatting.percent(window.utilization))%")
                         .font(.caption.weight(.bold)).monospacedDigit()
@@ -198,11 +321,16 @@ private struct CompactUsageRow: View {
 
 private struct ResetText: View {
     let resetsAt: Date?
+    var compact = false
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
             VStack(alignment: .leading, spacing: 3) {
-                if let resetsAt {
+                if compact {
+                    Text(compactText(now: context.date))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else if let resetsAt {
                     Text("Resets in: \(UsageFormatting.countdown(to: resetsAt, now: context.date))")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -216,6 +344,13 @@ private struct ResetText: View {
                 }
             }
         }
+    }
+}
+
+private extension ResetText {
+    func compactText(now: Date) -> String {
+        guard let resetsAt else { return "Not started — no usage yet" }
+        return "Resets in \(UsageFormatting.countdown(to: resetsAt, now: now)) · \(UsageFormatting.resetDescription(resetsAt, now: now))"
     }
 }
 
@@ -235,7 +370,7 @@ private struct MessageCard: View {
 }
 
 private struct StatusLine: View {
-    @EnvironmentObject private var store: UsageStore
+    @ObservedObject var provider: ProviderStore
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { context in
@@ -251,25 +386,25 @@ private struct StatusLine: View {
     }
 
     private var dotColor: Color {
-        switch store.status {
-        case .error: return .orange
+        switch provider.status {
+        case .error, .signedOut: return .orange
         case .loading: return .blue
         default: return .green
         }
     }
 
     private func text(now: Date) -> String {
-        switch store.status {
+        switch provider.status {
         case .loading:
             return "Updating…"
-        case .error(let message) where store.snapshot != nil:
+        case .error(let message) where provider.snapshot != nil, .signedOut(let message) where provider.snapshot != nil:
             // Keep showing the last good data; explain why it's stale.
-            let age = store.snapshot.map { UsageFormatting.relativeAge(of: $0.fetchedAt, now: now) } ?? ""
+            let age = provider.snapshot.map { UsageFormatting.relativeAge(of: $0.fetchedAt, now: now) } ?? ""
             return "Updated \(age) · \(message)"
-        case .error:
+        case .error, .signedOut:
             return "Not updated"
         case .idle, .ok:
-            guard let snapshot = store.snapshot else { return "Waiting for data" }
+            guard let snapshot = provider.snapshot else { return "Waiting for data" }
             return "Updated \(UsageFormatting.relativeAge(of: snapshot.fetchedAt, now: now))"
         }
     }

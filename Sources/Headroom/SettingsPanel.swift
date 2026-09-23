@@ -11,16 +11,30 @@ struct SettingsPanel: View {
     @AppStorage(SettingsKey.sessionThresholds) private var sessionThresholds = "75, 90"
     @AppStorage(SettingsKey.weeklyThresholds) private var weeklyThresholds = "75, 90"
     @AppStorage(SettingsKey.menuBarText) private var menuBarText = MenuBarTextMode.sessionUsed.rawValue
+    @AppStorage(SettingsKey.menuBarStyle) private var menuBarStyle = MenuBarStyle.combined.rawValue
+    @AppStorage(SettingsKey.providerEnabled(.claude)) private var claudeEnabled = true
+    @AppStorage(SettingsKey.providerEnabled(.codex)) private var codexEnabled = true
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var launchAtLoginError: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            section("Services") {
+                Toggle("Claude (Claude Code sign-in)", isOn: $claudeEnabled)
+                    .onChange(of: claudeEnabled) { _ in store.applyEnabledProviders() }
+                Toggle("Codex (Codex CLI sign-in)", isOn: $codexEnabled)
+                    .onChange(of: codexEnabled) { _ in store.applyEnabledProviders() }
+                Text("Codex shows Codex limits only; ChatGPT chat message limits aren't available.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
             section("Refresh") {
                 Picker("Check every", selection: $refreshMinutes) {
                     ForEach(AppSettings.refreshChoices, id: \.self) { Text("\($0) min").tag($0) }
                 }
-                .onChange(of: refreshMinutes) { _ in store.refreshNow() }
+                .onChange(of: refreshMinutes) { _ in store.refreshAll() }
             }
 
             section("Notifications") {
@@ -32,6 +46,9 @@ struct SettingsPanel: View {
             }
 
             section("Menu bar") {
+                Picker("Icons", selection: $menuBarStyle) {
+                    ForEach(MenuBarStyle.allCases) { Text($0.label).tag($0.rawValue) }
+                }
                 Picker("Show", selection: $menuBarText) {
                     ForEach(MenuBarTextMode.allCases) { Text($0.label).tag($0.rawValue) }
                 }
@@ -42,7 +59,7 @@ struct SettingsPanel: View {
                 }
             }
 
-            Text("Reads Claude Code's sign-in from your Keychain and queries the same usage endpoint as Claude Code's /usage command. Nothing leaves your Mac except that request to api.anthropic.com.")
+            Text("Reads Claude Code's and Codex's existing sign-ins (never refreshes or changes them) and asks the same usage endpoints their /usage and /status commands use. Nothing leaves your Mac except those requests to api.anthropic.com and chatgpt.com.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

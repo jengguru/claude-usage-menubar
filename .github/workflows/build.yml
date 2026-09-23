@@ -4,18 +4,32 @@ on:
   push:
   pull_request:
 
+# Read-only token: this workflow only builds and tests.
+permissions:
+  contents: read
+
 jobs:
   macos:
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v5
+      # Actions are pinned to full commit SHAs (a tag can be moved to malicious
+      # code; a SHA can't). Dependabot keeps them up to date.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Toolchain
         run: swift --version
+      - name: No third-party packages
+        run: scripts/check-no-dependencies.sh
       - name: Test
         run: swift test
       - name: Build app bundle
         run: UNIVERSAL=1 scripts/build-app.sh
-      - uses: actions/upload-artifact@v5
+      - name: Verify signature and launch
+        run: scripts/smoke-test.sh
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: Headroom
-          path: build/Headroom.zip
+          path: |
+            build/Headroom.zip
+            build/Headroom.zip.sha256

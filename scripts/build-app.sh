@@ -26,7 +26,11 @@ for size in 16 32 128 256 512; do
   sips -z $((size * 2)) $((size * 2)) Resources/AppIcon.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
-codesign --force --sign - --timestamp=none "$APP"
+# Ad-hoc signature with the hardened runtime: macOS then refuses code injection
+# (DYLD_INSERT_LIBRARIES, unsigned libraries, debugger attach) into the app.
+codesign --force --sign - --options runtime --timestamp=none "$APP"
 
-(cd build && rm -f Headroom.zip && ditto -c -k --keepParent "Headroom.app" Headroom.zip)
+(cd build && rm -f Headroom.zip Headroom.zip.sha256 \
+  && ditto -c -k --keepParent "Headroom.app" Headroom.zip \
+  && shasum -a 256 Headroom.zip > Headroom.zip.sha256)
 echo "Built $APP"
