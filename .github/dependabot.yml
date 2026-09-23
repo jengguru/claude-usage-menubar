@@ -1,0 +1,10 @@
+# Keeps the SHA-pinned GitHub Actions up to date. Each update arrives as a PR
+# that CI must pass, so nothing changes without review.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

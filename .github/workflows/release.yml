@@ -1,0 +1,71 @@
+name: Release
+
+# Pushing a version tag (e.g. v0.3.0) builds Headroom.app on GitHub's macOS
+# runner and publishes it as a GitHub Release. The README links to the latest
+# release's Headroom.zip.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-14
+    permissions:
+      contents: write          # create the release
+      id-token: write          # sign the build provenance (public repos)
+      attestations: write
+      artifact-metadata: write
+    env:
+      TAG: ${{ github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Tag must be on main and match Info.plist
+        run: |
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "error: $TAG is not on main; only reviewed code is released." >&2; exit 1; }
+          version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
+          [[ "$TAG" == "v$version" ]] \
+            || { echo "error: tag $TAG does not match Info.plist version $version." >&2; exit 1; }
+
+      - name: No third-party packages
+        run: scripts/check-no-dependencies.sh
+      - name: Test
+        run: swift test
+      - name: Build app bundle
+        run: UNIVERSAL=1 scripts/build-app.sh
+      - name: Verify signature and launch
+        run: scripts/smoke-test.sh
+
+      # Signed statement that this zip was built by this workflow from this
+      # commit; verify with `gh attestation verify`. GitHub offers it for free
+      # on public repositories only, so it's skipped while the repo is private.
+      - name: Attest build provenance
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: build/Headroom.zip
+
+      - name: Publish release
+        run: |
+          sha="$(cut -d' ' -f1 build/Headroom.zip.sha256)"
+          cat > build/notes.md <<EOF
+          Download **Headroom.zip**, unzip it and move Headroom.app to Applications.
+
+          SHA-256 of Headroom.zip: \`$sha\`
+
+          Built by GitHub Actions from commit $GITHUB_SHA. See SECURITY.md for how to verify the download.
+          EOF
+          gh release create "$TAG" build/Headroom.zip build/Headroom.zip.sha256 \
+            --verify-tag --title "Headroom $TAG" --notes-file build/notes.md

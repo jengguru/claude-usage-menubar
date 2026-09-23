@@ -21,6 +21,16 @@ Requires macOS 13+ and at least one of:
 
 > **ChatGPT chat message limits are not shown.** Codex's usage endpoint doesn't report them and there is no known endpoint that does, so the Codex numbers cover Codex usage only, not messages in the ChatGPT app.
 
+## Download
+
+**[⬇ Download the latest Headroom.zip](https://github.com/jengguru/claude-usage-menubar/releases/latest/download/Headroom.zip)** · [all releases](https://github.com/jengguru/claude-usage-menubar/releases)
+
+1. Unzip the file and move **Headroom.app** to **Applications**.
+2. Headroom isn't notarized by Apple, so the first launch is blocked. Right-click the app → **Open** → **Open**. On macOS 15 or later, open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
+3. Headroom appears in the menu bar. Click it, then the gear icon, to choose services and the menu bar style.
+
+Each release is built by GitHub Actions from a tagged commit on `main`, never on someone's laptop. [SECURITY.md](SECURITY.md) explains how to check that the file you downloaded is that build.
+
 ## Where the data comes from
 
 ### Claude
@@ -83,6 +93,8 @@ Sources/
     NotificationManager.swift  UNUserNotificationCenter
 Tests/HeadroomCoreTests     decoding, credentials, thresholds, provider selection, formatting
 Resources/AppIcon.svg       icon source (AppIcon.png is its 1024px render)
+scripts/                    build-app.sh, smoke-test.sh, check-no-dependencies.sh
+.github/workflows/          build.yml (every push), release.yml (v* tags)
 ```
 
 Adding a provider means writing a `UsageFetcher` that returns a `UsageSnapshot`; thresholds, notifications, the menu bar and the popover work from the snapshot.
@@ -101,9 +113,20 @@ scripts/build-app.sh
 open "build/Headroom.app"
 ```
 
-Move the app to `/Applications` if you want **Launch at login**. CI (GitHub Actions, `macos-14`) runs the tests and uploads a universal `Headroom.zip` artifact on every push.
+Move the app to `/Applications` if you want **Launch at login**. CI (GitHub Actions, `macos-14`) runs the tests, builds a universal app with the hardened runtime, checks that it launches, and uploads `Headroom.zip` as a workflow artifact on every push.
 
-Because the app is ad-hoc signed, the first time you open a downloaded build: right-click → **Open**, or run `xattr -dr com.apple.quarantine "Headroom.app"`.
+### Publishing a release
+
+Bump `CFBundleShortVersionString` in `Resources/Info.plist`, merge to `main`, then tag that commit on `main`:
+
+```sh
+git checkout main
+git pull
+git tag v0.3.0
+git push origin v0.3.0
+```
+
+The **Release** workflow checks that the tag is on `main` and matches `Info.plist`, runs the tests, builds the app and publishes a GitHub Release with `Headroom.zip` and its SHA-256. The Download link above always points at the newest release.
 
 ## Troubleshooting
 
