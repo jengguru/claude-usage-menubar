@@ -33,7 +33,7 @@ Put Headroom.zip in your Downloads folder and run these commands in Terminal.
 2. Public repositories only: check the build provenance (needs the [GitHub CLI](https://cli.github.com)):
 
    ```sh
-   gh attestation verify ~/Downloads/Headroom.zip --repo jengguru/claude-usage-menubar
+   gh attestation verify ~/Downloads/Headroom.zip --repo jengguru/headroom
    ```
 
 3. After unzipping, check the signature and hardened runtime (look for `flags=0x10002(adhoc,runtime)`):

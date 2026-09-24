@@ -2,7 +2,7 @@
 
 <img src="Resources/AppIcon.png" width="128" alt="Headroom icon">
 
-**Know how much Claude and Codex you have left, before you hit the wall.**
+**Show your AI subscription usage limits.**
 
 A native macOS menu bar app that shows your subscription usage limits for **Claude** (shared by claude.ai and Claude Code) and **Codex** (ChatGPT plan limits for Codex CLI, IDE and cloud), and notifies you before you hit them.
 
@@ -23,7 +23,7 @@ Requires macOS 13+ and at least one of:
 
 ## Download
 
-**[⬇ Download the latest Headroom.zip](https://github.com/jengguru/claude-usage-menubar/releases/latest/download/Headroom.zip)** · [all releases](https://github.com/jengguru/claude-usage-menubar/releases)
+**[⬇ Download the latest Headroom.zip](https://github.com/jengguru/headroom/releases/latest/download/Headroom.zip)** · [all releases](https://github.com/jengguru/headroom/releases)
 
 1. Unzip the file and move **Headroom.app** to **Applications**.
 2. Headroom isn't notarized by Apple, so the first launch is blocked. Right-click the app → **Open** → **Open**. On macOS 15 or later, open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
