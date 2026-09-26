@@ -195,6 +195,30 @@ final class ClaudeCredentialsTests: XCTestCase {
         }
     }
 
+    func testNamedAccountReadsOnlyItsOwnConfigDir() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try Data(#"{"claudeAiOauth":{"accessToken":"work-tok"}}"#.utf8)
+            .write(to: dir.appendingPathComponent(".credentials.json"))
+
+        let account = ClaudeAccountConfig(label: "Work", configDir: dir.path)
+        XCTAssertEqual(try ClaudeCredentials.loader(account: account).load().accessToken, "work-tok")
+
+        // A named account never falls back to the default (`~/.claude`)
+        // location, so a missing file there is reported, not silently
+        // swapped for the default account's own credentials.
+        let missing = ClaudeAccountConfig(label: "Missing", configDir: dir.appendingPathComponent("nope").path)
+        XCTAssertThrowsError(try ClaudeCredentials.loader(account: missing).load()) { error in
+            XCTAssertEqual(error as? ClaudeCredentialsError, .notFound)
+        }
+    }
+
+    func testDefaultAccountConstant() {
+        XCTAssertEqual(ClaudeAccountConfig.default.id, "default")
+        XCTAssertEqual(ClaudeAccountConfig.default.label, "Claude")
+        XCTAssertEqual(ClaudeAccountConfig.default.configDir, "")
+    }
+
     #if os(macOS)
     func testDecodesHexKeychainOutput() {
         let hex = Data("7b2261223a317d".utf8) // {"a":1}

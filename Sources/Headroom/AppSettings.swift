@@ -8,14 +8,17 @@ enum SettingsKey {
     static let weeklyThresholds = "weeklyThresholds"
     static let menuBarText = "menuBarText"
     static let menuBarStyle = "menuBarStyle"
+    static let claudeAccounts = "claudeAccounts"
 
     static func providerEnabled(_ provider: UsageProvider) -> String {
         "providerEnabled.\(provider.rawValue)"
     }
 
-    /// Claude keeps the pre-provider key so already-fired alerts carry over.
-    static func thresholdState(_ provider: UsageProvider) -> String {
-        provider == .claude ? "thresholdState" : "thresholdState.\(provider.rawValue)"
+    /// Claude's default account keeps the pre-multi-account key so
+    /// already-fired alerts carry over; other accounts get their own.
+    static func thresholdState(_ provider: UsageProvider, accountID: String) -> String {
+        provider == .claude && accountID == ClaudeAccountConfig.default.id
+            ? "thresholdState" : "thresholdState.\(provider.rawValue).\(accountID)"
     }
 }
 
@@ -88,13 +91,32 @@ enum AppSettings {
         ]
     }
 
-    static func thresholdState(for provider: UsageProvider) -> ThresholdState {
-        guard let data = UserDefaults.standard.data(forKey: SettingsKey.thresholdState(provider)),
+    static func thresholdState(for provider: UsageProvider, accountID: String) -> ThresholdState {
+        guard let data = UserDefaults.standard.data(forKey: SettingsKey.thresholdState(provider, accountID: accountID)),
               let state = try? JSONDecoder().decode(ThresholdState.self, from: data) else { return ThresholdState() }
         return state
     }
 
-    static func setThresholdState(_ state: ThresholdState, for provider: UsageProvider) {
-        UserDefaults.standard.set(try? JSONEncoder().encode(state), forKey: SettingsKey.thresholdState(provider))
+    static func setThresholdState(_ state: ThresholdState, for provider: UsageProvider, accountID: String) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(state), forKey: SettingsKey.thresholdState(provider, accountID: accountID))
+    }
+
+    /// The Claude accounts Headroom tracks. Defaults to the one account every
+    /// install starts with (reads the same place as before this existed).
+    static var claudeAccounts: [ClaudeAccountConfig] {
+        get {
+            guard let data = UserDefaults.standard.data(forKey: SettingsKey.claudeAccounts),
+                  let accounts = try? JSONDecoder().decode([ClaudeAccountConfig].self, from: data), !accounts.isEmpty
+            else { return [.default] }
+            return accounts
+        }
+        set {
+            let sanitized = newValue.map { account -> ClaudeAccountConfig in
+                var account = account
+                if account.label.trimmingCharacters(in: .whitespaces).isEmpty { account.label = "Claude" }
+                return account
+            }
+            UserDefaults.standard.set(try? JSONEncoder().encode(sanitized.isEmpty ? [.default] : sanitized), forKey: SettingsKey.claudeAccounts)
+        }
     }
 }

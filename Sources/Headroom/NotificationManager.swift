@@ -19,16 +19,20 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         center?.requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
-    func post(_ alert: ThresholdAlert) {
+    /// `accountLabel` names the account only when it differs from the
+    /// provider's own name — i.e. when it's worth disambiguating.
+    func post(_ alert: ThresholdAlert, accountID: String = "", accountLabel: String? = nil) {
         let content = UNMutableNotificationContent()
-        content.title = "\(alert.provider.displayName) \(alert.windowName) usage at \(UsageFormatting.percent(alert.utilization))%"
+        let name = (accountLabel != nil && accountLabel != alert.provider.displayName)
+            ? "\(alert.provider.displayName) (\(accountLabel!))" : alert.provider.displayName
+        content.title = "\(name) \(alert.windowName) usage at \(UsageFormatting.percent(alert.utilization))%"
         var body = "\(UsageFormatting.percent(max(100 - alert.utilization, 0)))% left"
         if let resetsAt = alert.resetsAt {
             body += " · resets in \(UsageFormatting.countdown(to: resetsAt)) (\(UsageFormatting.resetDescription(resetsAt)))"
         }
         content.body = body
         content.sound = alert.threshold >= 90 ? .defaultCritical : .default
-        deliver(content, id: "threshold-\(alert.provider.rawValue)-\(alert.windowID)")
+        deliver(content, id: "threshold-\(alert.provider.rawValue)-\(accountID)-\(alert.windowID)")
     }
 
     func postTest() {

@@ -67,13 +67,31 @@ public struct ClaudeCredentials: Equatable, Sendable {
         return dirs.map { FileCredentialsSource(url: $0.appendingPathComponent(".credentials.json")) }
     }
 
-    /// Keychain item "Claude Code-credentials" first, then the credentials files.
-    public static func loader(sources: [CredentialsDataSource]? = nil) -> CredentialsLoader<ClaudeCredentials> {
+    /// A named account's own directory, with no fallback to the default
+    /// account's location — falling back there would silently show the
+    /// wrong account's usage under this one's label.
+    static func fileLocation(configDir: String) -> FileCredentialsSource {
+        let dir = URL(fileURLWithPath: (configDir as NSString).expandingTildeInPath)
+        return FileCredentialsSource(url: dir.appendingPathComponent(".credentials.json"))
+    }
+
+    /// Keychain item "Claude Code-credentials" first, then the credentials files —
+    /// for the default account. The Keychain item is a single, unnamed slot
+    /// shared by every `claude` sign-in on the Mac, so it only ever holds
+    /// whichever account last ran `/login`: it can't be trusted for a named
+    /// `account` with its own `configDir`, which is file-only instead —
+    /// point `configDir` at a directory holding that account's own
+    /// `.credentials.json` (e.g. from `CLAUDE_CONFIG_DIR=<dir> claude`, then `/login`).
+    public static func loader(account: ClaudeAccountConfig = .default, sources: [CredentialsDataSource]? = nil) -> CredentialsLoader<ClaudeCredentials> {
         var standard: [CredentialsDataSource] = []
-        #if os(macOS)
-        standard.append(KeychainCLICredentialsSource(service: keychainService))
-        #endif
-        standard.append(contentsOf: fileLocations() as [CredentialsDataSource])
+        if account.configDir.isEmpty {
+            #if os(macOS)
+            standard.append(KeychainCLICredentialsSource(service: keychainService))
+            #endif
+            standard.append(contentsOf: fileLocations() as [CredentialsDataSource])
+        } else {
+            standard.append(fileLocation(configDir: account.configDir))
+        }
         return CredentialsLoader(sources: sources ?? standard, parse: { try ClaudeCredentials.parse($0) }, notFound: { ClaudeCredentialsError.notFound })
     }
 }

@@ -22,6 +22,9 @@ struct SettingsPanel: View {
             section("Services") {
                 Toggle("Claude (Claude Code sign-in)", isOn: $claudeEnabled)
                     .onChange(of: claudeEnabled) { _ in store.applyEnabledProviders() }
+                ClaudeAccountsEditor(store: store)
+                    .padding(.leading, 20)
+                    .disabled(!claudeEnabled)
                 Toggle("Codex (Codex CLI sign-in)", isOn: $codexEnabled)
                     .onChange(of: codexEnabled) { _ in store.applyEnabledProviders() }
                 Text("Codex shows Codex limits only; ChatGPT chat message limits aren't available.")
@@ -106,5 +109,61 @@ struct SettingsPanel: View {
             launchAtLoginError = "Couldn't change login item: \(error.localizedDescription)"
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
+    }
+}
+
+/// Tracks several Claude accounts (e.g. a personal and a work sign-in) as
+/// separate rows, each with its own label and optional credentials directory.
+private struct ClaudeAccountsEditor: View {
+    @ObservedObject var store: UsageStore
+    @State private var accounts: [ClaudeAccountConfig] = AppSettings.claudeAccounts
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach($accounts) { $account in
+                HStack(spacing: 6) {
+                    TextField("Label", text: $account.label, onEditingChanged: commitIfDone)
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 90)
+                    TextField("Config dir (optional, e.g. ~/.claude-work)", text: $account.configDir, onEditingChanged: commitIfDone)
+                        .textFieldStyle(.roundedBorder)
+                    Button {
+                        remove(account)
+                    } label: {
+                        Image(systemName: "minus.circle").foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(accounts.count == 1)
+                    .help("Remove this account")
+                }
+            }
+            Button {
+                accounts.append(ClaudeAccountConfig(label: "Account \(accounts.count + 1)"))
+                commit()
+            } label: {
+                Label("Add Claude account", systemImage: "plus.circle")
+            }
+            .buttonStyle(.plain)
+            .font(.caption)
+
+            Text("An extra account needs its own sign-in — run `CLAUDE_CONFIG_DIR=<dir> claude` and /login there — so switching accounts never needs a logout. Leave Config dir blank for the account already signed in via `claude` / Keychain.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func commitIfDone(_ isEditing: Bool) {
+        guard !isEditing else { return }
+        commit()
+    }
+
+    private func commit() {
+        store.updateClaudeAccounts(accounts)
+    }
+
+    private func remove(_ account: ClaudeAccountConfig) {
+        accounts.removeAll { $0.id == account.id }
+        commit()
     }
 }
